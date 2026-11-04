@@ -10,10 +10,12 @@ chữ ký và thử sửa gói tin.
 
 ## Cài đặt và chạy
 
-Yêu cầu Python 3.10 trở lên.
+Yêu cầu Python 3.10 trở lên và Node.js 20.19 trở lên để build giao diện React.
 
 ```powershell
 python -m pip install -r requirements.txt
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run build
 python -m pgp_demo.web
 ```
 
@@ -23,6 +25,12 @@ cục bộ. Có thể đổi cổng hoặc thư mục lưu dữ liệu:
 ```powershell
 python -m pgp_demo.web --port 8080 --data-dir .\data
 ```
+
+Khi chỉnh sửa giao diện React/TypeScript, build lại bằng
+`npm.cmd --prefix frontend run build`. Để phát triển với Vite hot reload, chạy
+backend bằng `python -m pgp_demo.web` ở một terminal và
+`npm.cmd --prefix frontend run dev` ở terminal khác, rồi mở
+`http://127.0.0.1:5173`.
 
 Để dùng menu terminal:
 
@@ -44,6 +52,18 @@ Chế độ tấn công có thể sửa payload hoặc thử mở gói tin bằn
 Khóa riêng lưu cục bộ trong thư mục người dùng và được mã hóa bằng passphrase.
 Mỗi gói tin sử dụng khóa AES ngẫu nhiên; khóa phiên được bọc bằng RSA-OAEP,
 nội dung nén bằng zlib và tùy chọn ký bằng RSA-PSS/SHA-256.
+
+Giao diện web được xây dựng bằng React và TypeScript. Mỗi lần bấm “Tiếp theo”
+mới thực thi bước gửi/nhận tương ứng; backend chỉ trả kết quả của bước vừa chạy.
+Vì vậy lỗi định dạng, mở khóa, giải mã hoặc xác minh chỉ xuất hiện khi quy trình
+chạm đến bước đó. Phiên xử lý tạm thời được lưu trong bộ nhớ máy chủ và hết hạn
+sau 15 phút. Luồng gửi được gộp thành: tạo chữ ký số, nén dữ liệu, sinh khóa
+phiên, mã hóa lai và đóng gói ASCII armor. Luồng nhận được gộp thành: tách armor,
+mở khóa phiên, giải mã/giải nén và xác minh chữ ký. Armor của demo không có
+CRC-24. Chữ ký RSA-PSS được xác minh trực tiếp trên plaintext; không thể giải
+mã chữ ký để trích H1 như một số mô tả RSA khác. Giá trị khóa phiên AES được
+ẩn. Đây chỉ là mô phỏng quy trình mật mã kiểu PGP; định dạng không tương thích
+chuẩn OpenPGP.
 
 ## Kiểm thử
 

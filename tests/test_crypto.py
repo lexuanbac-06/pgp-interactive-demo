@@ -30,7 +30,7 @@ def test_hybrid_encrypt_sign_decrypt_and_verify(key_pair: rsa.RSAPrivateKey) -> 
     assert signature is not None
     assert signature["fingerprint"] == fingerprint
     assert crypto.verify_signature(message, signature, key_pair.public_key())
-    assert any(label == "Khóa phiên AES-256" for label, _ in steps)
+    assert any(label == "Sinh khóa phiên" for label, _ in steps)
     assert "BEGIN PGP MESSAGE" in armored
 
 

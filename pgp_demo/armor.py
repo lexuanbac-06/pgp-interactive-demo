@@ -23,8 +23,8 @@ def encode(label: str, data: Any) -> str:
     return f"-----BEGIN PGP {label}-----\nVersion: PGP Demo (educational simulation)\n\n{lines}\n-----END PGP {label}-----"
 
 
-def decode(armored: str, expected_label: str) -> Any:
-    """Giải mã một khối armor và trả về đối tượng JSON."""
+def decode_bytes(armored: str, expected_label: str) -> bytes:
+    """Giải mã phần Base64 của khối armor và trả về bytes."""
     if not isinstance(armored, str):
         raise ArmorError("Khối armor phải là văn bản.")
     if not re.fullmatch(r"[A-Z ]+", expected_label):
@@ -48,7 +48,15 @@ def decode(armored: str, expected_label: str) -> Any:
     if not encoded:
         raise ArmorError("Khối armor không có dữ liệu.")
     try:
-        raw = base64.b64decode(encoded, validate=True)
+        return base64.b64decode(encoded, validate=True)
+    except binascii.Error as exc:
+        raise ArmorError("Dữ liệu Base64 trong khối armor không hợp lệ hoặc đã bị sửa.") from exc
+
+
+def decode(armored: str, expected_label: str) -> Any:
+    """Giải mã một khối armor và trả về đối tượng JSON."""
+    raw = decode_bytes(armored, expected_label)
+    try:
         return json.loads(raw.decode("utf-8"))
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ArmorError("Dữ liệu Base64/JSON trong khối armor không hợp lệ hoặc đã bị sửa.") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ArmorError("Dữ liệu JSON trong khối armor không hợp lệ hoặc đã bị sửa.") from exc
