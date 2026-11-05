@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import os
 import secrets
 import sys
 import threading
@@ -385,8 +386,13 @@ def _find_recipient(users: Users, sender: User, wanted: str) -> PublicIdentity |
     return users.keyring(sender).find_public(wanted)
 
 
-def create_server(data_directory: str | Path, port: int = 8000) -> ThreadingHTTPServer:
-    """Tạo server chỉ lắng nghe trên loopback."""
+def create_server(
+    data_directory: str | Path,
+    port: int = 8000,
+    host: str = "127.0.0.1",
+    allowed_origin: str | None = None,
+) -> ThreadingHTTPServer:
+    """Tạo server giao diện/API."""
     users = Users(data_directory)
     open_sessions: dict[str, MessageOpenSession] = {}
     open_sessions_lock = threading.Lock()
@@ -408,8 +414,17 @@ def create_server(data_directory: str | Path, port: int = 8000) -> ThreadingHTTP
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_cors_headers(self) -> None:
+            origin = self.headers.get("Origin")
+            if allowed_origin and origin == allowed_origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                self.send_header("Vary", "Origin")
 
         def _send_error(self, status: int, message: str) -> None:
             self._send_json(status, {"error": message})
@@ -442,14 +457,27 @@ def create_server(data_directory: str | Path, port: int = 8000) -> ThreadingHTTP
             return users.get(self._require_string(data, "user_id"))
 
         def _is_local_host(self) -> bool:
+            if allowed_origin:
+                return True
             host = self.headers.get("Host", "").split(":", 1)[0].strip("[]").lower()
             return host in {"127.0.0.1", "localhost", "::1"}
+
+        def do_OPTIONS(self) -> None:
+            if not self._is_local_host():
+                self._send_error(403, "Yêu cầu không được phép.")
+                return
+            self.send_response(204)
+            self._send_cors_headers()
+            self.end_headers()
 
         def do_GET(self) -> None:
             if not self._is_local_host():
                 self._send_error(403, "Chỉ phục vụ giao diện từ máy cục bộ.")
                 return
             parsed = urlparse(self.path)
+            if parsed.path == "/health":
+                self._send_json(200, {"status": "ok"})
+                return
             if parsed.path == "/":
                 page_path = STATIC_DIRECTORY / "index.html"
                 if not page_path.is_file():
@@ -728,19 +756,21 @@ def create_server(data_directory: str | Path, port: int = 8000) -> ThreadingHTTP
         def log_message(self, format: str, *args: Any) -> None:
             sys.stdout.write("%s - %s\n" % (self.address_string(), format % args))
 
-    return ThreadingHTTPServer(("127.0.0.1", port), RequestHandler)
+    return ThreadingHTTPServer((host, port), RequestHandler)
 
 
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(description="Local web interface for PGP Demo.")
+    parser = argparse.ArgumentParser(description="Web interface and API for PGP Demo.")
     parser.add_argument("--data-dir", type=Path, help="Thư mục lưu người dùng và keyring.")
-    parser.add_argument("--port", type=int, default=8000, help="Cổng giao diện (mặc định 8000).")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")), help="Cổng giao diện.")
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"), help="Địa chỉ bind.")
+    parser.add_argument("--allowed-origin", default=os.environ.get("ALLOWED_ORIGIN"), help="Origin được phép gọi API.")
     args = parser.parse_args()
     data_directory = args.data_dir or Path(__file__).resolve().parent.parent / "data"
-    server = create_server(data_directory, args.port)
-    print(f"PGP Demo đang chạy tại http://127.0.0.1:{server.server_port}")
+    server = create_server(data_directory, args.port, args.host, args.allowed_origin)
+    print(f"PGP Demo đang chạy tại http://{args.host}:{server.server_port}")
     print("Nhấn Ctrl+C để dừng.")
     try:
         server.serve_forever()

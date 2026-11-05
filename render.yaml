@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: pgp-interactive-demo-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m pgp_demo.web --host 0.0.0.0 --port $PORT --allowed-origin https://lexuanbac-06.github.io
+    healthCheckPath: /health
+    autoDeploy: true

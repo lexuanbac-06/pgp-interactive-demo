@@ -65,8 +65,20 @@ type AppState = {
 
 type AppTab = "send" | "receive" | "keyring";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
+const STATIC_PREVIEW = import.meta.env.BASE_URL !== "/" && !API_BASE_URL;
+const PREVIEW_STATE: AppState = {
+  users: [
+    { id: "alice-preview", name: "Alice", key: { name: "Alice", fingerprint: "A1B2C3D4E5F60718", bits: 2048 } },
+    { id: "bob-preview", name: "Bob", key: { name: "Bob", fingerprint: "B2C3D4E5F6071829", bits: 2048 } },
+    { id: "eve-preview", name: "Eve", key: { name: "Eve", fingerprint: "E5F6071829A1B2C3", bits: 2048 } },
+  ],
+  selected_user_id: "alice-preview",
+  contacts: [],
+};
+
 async function api<T>(path: string, body?: object): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -355,6 +367,13 @@ export default function App() {
   }
 
   async function refresh(selectedId?: string) {
+    if (STATIC_PREVIEW) {
+      const selected = selectedId || PREVIEW_STATE.selected_user_id || PREVIEW_STATE.users[0]?.id || "";
+      setUsers(PREVIEW_STATE.users);
+      setContacts(PREVIEW_STATE.contacts);
+      setActiveId(selected);
+      return selected;
+    }
     const query = selectedId ? `?user_id=${encodeURIComponent(selectedId)}` : "";
     const result = await api<AppState>(`/api/state${query}`);
     const selected = selectedId || result.selected_user_id || result.users[0]?.id || "";
@@ -402,6 +421,10 @@ export default function App() {
     setReceiveComplete(false);
     setOpenedMessage("");
     setSignatureResult(null);
+    if (STATIC_PREVIEW) {
+      setActiveId(userId);
+      return;
+    }
     try {
       await refresh(userId);
     } catch (error) {
@@ -643,7 +666,7 @@ export default function App() {
           <span><strong>PGP<span>Lab</span></strong><small>CRYPTOGRAPHY PLAYGROUND</small></span>
         </a>
         <div className="topbar-right">
-          <span className="local-indicator"><span /> Đang chạy cục bộ</span>
+          <span className="local-indicator"><span /> {STATIC_PREVIEW ? "Bản xem giao diện" : "Đang chạy cục bộ"}</span>
           <span className="version-badge"><ShieldCheck size={14} /> DEMO HỌC TẬP</span>
         </div>
       </header>
@@ -665,7 +688,12 @@ export default function App() {
 
       <div className="security-note">
         <ShieldCheck size={17} />
-        <p><strong>Mô phỏng an toàn để học tập.</strong> Gói tin dùng RSA-PSS, RSA-OAEP, AES-256-GCM và SHA-256, nhưng định dạng không tương thích OpenPGP — không dùng để bảo vệ dữ liệu thật.</p>
+        <p>
+          <strong>{STATIC_PREVIEW ? "Bản xem giao diện GitHub Pages." : "Mô phỏng an toàn để học tập."}</strong>{" "}
+          {STATIC_PREVIEW
+            ? "Các thao tác mật mã cần chạy bản Python cục bộ bằng hướng dẫn trong README."
+            : "Gói tin dùng RSA-PSS, RSA-OAEP, AES-256-GCM và SHA-256, nhưng định dạng không tương thích OpenPGP — không dùng để bảo vệ dữ liệu thật."}
+        </p>
       </div>
 
       <nav className="user-switcher" aria-label="Danh tính">
