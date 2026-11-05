@@ -6,6 +6,7 @@ const frontendDirectory = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   root: frontendDirectory,
+  base: process.env.GITHUB_ACTIONS ? "/pgp-interactive-demo/" : "/",
   plugins: [react()],
   server: {
     proxy: {
