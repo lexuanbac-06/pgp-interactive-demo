@@ -488,8 +488,11 @@ def create_server(
                     return
                 self._send_static_file(page_path, cache_control="no-store")
                 return
-            if parsed.path.startswith("/assets/"):
-                relative_parts = [part for part in unquote(parsed.path).split("/") if part]
+            asset_path_url = parsed.path
+            if asset_path_url.startswith("/pgp-interactive-demo/assets/"):
+                asset_path_url = asset_path_url[len("/pgp-interactive-demo") :]
+            if asset_path_url.startswith("/assets/"):
+                relative_parts = [part for part in unquote(asset_path_url).split("/") if part]
                 asset_path = (STATIC_DIRECTORY / Path(*relative_parts)).resolve()
                 try:
                     asset_path.relative_to(STATIC_DIRECTORY.resolve())
