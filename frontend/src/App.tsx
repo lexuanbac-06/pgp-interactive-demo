@@ -323,7 +323,6 @@ export default function App() {
   const [encrypt, setEncrypt] = useState(true);
   const [sign, setSign] = useState(true);
   const [recipientFingerprint, setRecipientFingerprint] = useState("");
-  const [signerId, setSignerId] = useState("");
   const [signerPassphrase, setSignerPassphrase] = useState("");
   const [receiverId, setReceiverId] = useState("");
   const [receiverPassphrase, setReceiverPassphrase] = useState("");
@@ -363,7 +362,6 @@ export default function App() {
     }
     return combined;
   }, [users, activeId, contacts]);
-  const signers = users.filter((user) => user.key);
   const receiverChoices = users;
 
   function setNotice(key: string, notice?: Notice) {
@@ -398,12 +396,6 @@ export default function App() {
       setRecipientFingerprint(recipients[0]?.fingerprint || "");
     }
   }, [recipients, recipientFingerprint]);
-
-  useEffect(() => {
-    if (!signers.some((user) => user.id === signerId)) {
-      setSignerId(signers.find((user) => user.id === activeId)?.id || signers[0]?.id || "");
-    }
-  }, [signers, signerId, activeId]);
 
   useEffect(() => {
     if (!receiverChoices.some((user) => user.id === receiverId)) setReceiverId(activeId);
@@ -540,7 +532,7 @@ export default function App() {
         encrypt,
         recipient_fingerprint: recipientFingerprint,
         sign,
-        signer_id: signerId,
+        signer_id: activeId,
         signer_passphrase: signerPassphrase,
       });
       setPackageOutput(result.result?.armored || "");
@@ -783,18 +775,15 @@ export default function App() {
                     {recipients.map((recipient) => <option key={recipient.fingerprint} value={recipient.fingerprint}>{recipient.name} · {recipient.fingerprint.slice(0, 15)}…</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="field-label" htmlFor="signer">Người ký</label>
-                  <select id="signer" value={signerId} onChange={(event) => setSignerId(event.target.value)}>
-                    <option value="">Chọn khóa người ký</option>
-                    {signers.map((signer) => <option key={signer.id} value={signer.id}>{signer.name} · khóa riêng</option>)}
-                  </select>
+                <div className="field-hint">
+                  <span className="field-label">Người gửi & người ký</span>
+                  <span>{activeUser ? `${activeUser.name} · dùng khóa riêng của người đang chọn` : "Chọn một danh tính"}</span>
                 </div>
               </div>
 
               {sign && (
                 <div className="field-block">
-                  <label className="field-label" htmlFor="signer-passphrase">Passphrase khóa riêng người ký</label>
+                  <label className="field-label" htmlFor="signer-passphrase">Passphrase khóa riêng người gửi</label>
                   <div className="input-with-icon"><KeyRound size={16} /><input id="signer-passphrase" type="password" autoComplete="current-password" value={signerPassphrase} onChange={(event) => setSignerPassphrase(event.target.value)} placeholder="Dùng để mở khóa riêng cục bộ" /></div>
                 </div>
               )}

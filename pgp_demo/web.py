@@ -627,11 +627,10 @@ def create_server(
                 recipient_key = recipient.public_key
 
             if sign:
-                signer = users.get(self._require_string(data, "signer_id"))
-                signer_ring = users.keyring(signer)
+                signer_ring = users.keyring(sender)
                 identity = signer_ring.own_identity()
                 if identity is None:
-                    raise ValueError(f"{signer.name} chưa có khóa để ký.")
+                    raise ValueError(f"{sender.name} chưa có khóa để ký.")
                 signer_fingerprint = identity.fingerprint
 
             session = MessageCreateSession(

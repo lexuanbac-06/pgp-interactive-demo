@@ -94,6 +94,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .acting-as { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 7px 9px; border: 1px solid #edf0f7; border-radius: 999px; color: #717d96; background: #fbfcfe; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .panel-content { padding: 20px 21px 22px; }
 .panel-content.compact { padding-top: 16px; }
+.field-hint { display: flex; flex-direction: column; justify-content: center; min-height: 42px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .field-label { display: block; margin: 0 0 7px; color: #4b5870; font-size: 10px; font-weight: 700; }
 textarea, input[type="text"], input[type="password"], select { width: 100%; border: 1px solid #e1e6ef; border-radius: 9px; color: #293650; background: #fff; outline: none; transition: border-color .16s ease, box-shadow .16s ease; }
 textarea::placeholder, input::placeholder { color: #aab2c1; }
