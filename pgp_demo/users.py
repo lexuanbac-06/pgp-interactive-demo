@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +24,7 @@ class Users:
         self.data_directory = Path(data_directory)
         self.users_directory = self.data_directory / "users"
         self.registry_path = self.data_directory / "users.json"
+        self._mutation_lock = threading.Lock()
         self.data_directory.mkdir(parents=True, exist_ok=True)
         if not self.registry_path.exists():
             for name in ("Alice", "Bob", "Eve"):
@@ -37,17 +40,18 @@ class Users:
         return [User(item["id"], item["name"]) for item in entries]
 
     def add(self, name: str) -> User:
-        clean_name = name.strip()
-        if not clean_name:
-            raise ValueError("Tên người dùng không được để trống.")
-        current = self.list() if self.registry_path.exists() else []
-        if any(user.name.casefold() == clean_name.casefold() for user in current):
-            raise ValueError("Tên người dùng đã tồn tại.")
-        user = User(uuid.uuid4().hex, clean_name)
-        entries = [{"id": item.user_id, "name": item.name} for item in current]
-        entries.append({"id": user.user_id, "name": user.name})
-        self._save(entries)
-        return user
+        with self._mutation_lock:
+            clean_name = name.strip()
+            if not clean_name:
+                raise ValueError("Tên người dùng không được để trống.")
+            current = self.list() if self.registry_path.exists() else []
+            if any(user.name.casefold() == clean_name.casefold() for user in current):
+                raise ValueError("Tên người dùng đã tồn tại.")
+            user = User(uuid.uuid4().hex, clean_name)
+            entries = [{"id": item.user_id, "name": item.name} for item in current]
+            entries.append({"id": user.user_id, "name": user.name})
+            self._save(entries)
+            return user
 
     def keyring(self, user: User) -> Keyring:
         return Keyring(self.users_directory / user.user_id, user.name)
@@ -57,6 +61,50 @@ class Users:
             if user.user_id == user_id:
                 return user
         raise ValueError("Không tìm thấy người dùng đã chọn.")
+
+    def delete(self, user_id: str) -> User:
+        with self._mutation_lock:
+            current = self.list()
+            user = next((item for item in current if item.user_id == user_id), None)
+            if user is None:
+                raise ValueError("Không tìm thấy người dùng đã chọn.")
+            if len(current) == 1:
+                raise ValueError("Không thể xóa danh tính cuối cùng.")
+
+            self.users_directory.mkdir(parents=True, exist_ok=True)
+            user_directory = self.users_directory / user.user_id
+            if user_directory.is_symlink():
+                raise ValueError("Không thể xóa keyring liên kết ngoài thư mục người dùng.")
+            users_root = self.users_directory.resolve()
+            resolved_directory = user_directory.resolve()
+            try:
+                resolved_directory.relative_to(users_root)
+            except ValueError as exc:
+                raise ValueError("Thư mục keyring không hợp lệ.") from exc
+
+            staged_directory = self.users_directory / f".deleted-{uuid.uuid4().hex}"
+            if user_directory.exists():
+                user_directory.replace(staged_directory)
+            try:
+                remaining = [
+                    {"id": item.user_id, "name": item.name}
+                    for item in current
+                    if item.user_id != user_id
+                ]
+                self._save(remaining)
+            except OSError:
+                if staged_directory.exists():
+                    staged_directory.replace(user_directory)
+                raise
+
+            if staged_directory.exists():
+                try:
+                    shutil.rmtree(staged_directory, ignore_errors=False)
+                except OSError as exc:
+                    raise OSError(
+                        f"Đã xóa danh tính nhưng không thể xóa toàn bộ dữ liệu keyring: {exc}"
+                    ) from exc
+            return user
 
     def _save(self, entries: list[dict[str, str]]) -> None:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)

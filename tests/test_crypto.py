@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from pgp_demo import armor, attack, crypto
 from pgp_demo.crypto import CryptoError
 from pgp_demo.keys import Keyring
+from pgp_demo.users import Users
 
 
 @pytest.fixture
@@ -70,3 +71,25 @@ def test_keyring_export_import_and_passphrase(tmp_path) -> None:
     assert bob.find_public(fingerprint) is not None
     with pytest.raises(ValueError, match="Passphrase sai"):
         alice.load_private("wrong-passphrase")
+
+
+def test_delete_user_removes_keyring_and_preserves_last_identity(tmp_path) -> None:
+    users = Users(tmp_path)
+    user = users.add("Temporary")
+    keyring = users.keyring(user)
+    keyring.generate("temporary-passphrase", 2048)
+    keyring_directory = users.users_directory / user.user_id
+
+    deleted = users.delete(user.user_id)
+
+    assert deleted == user
+    assert all(item.user_id != user.user_id for item in users.list())
+    assert not keyring_directory.exists()
+    with pytest.raises(ValueError, match="Không tìm thấy"):
+        users.delete(user.user_id)
+
+    remaining = users.list()
+    for item in remaining[:-1]:
+        users.delete(item.user_id)
+    with pytest.raises(ValueError, match="cuối cùng"):
+        users.delete(users.list()[0].user_id)

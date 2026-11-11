@@ -36,6 +36,17 @@ def request_json(base_url: str, path: str, payload: dict | None = None) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def delete_json(base_url: str, path: str, payload: dict) -> dict:
+    request = urllib.request.Request(
+        base_url + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="DELETE",
+    )
+    with urllib.request.urlopen(request) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def open_stepwise(base_url: str, payload: dict) -> dict:
     current = request_json(base_url, "/api/messages/open", payload)
     return finish_open(base_url, current)
@@ -355,3 +366,17 @@ def test_web_ui_hybrid_signed_message_flow(web_server: str) -> None:
     assert eve_error.value.code == 400
     eve_failure = json.loads(eve_error.value.read().decode("utf-8"))
     assert "khóa riêng này" in eve_failure["error"]
+
+
+def test_delete_user_endpoint_prevents_deleting_last_identity(web_server: str) -> None:
+    users = request_json(web_server, "/api/state")["users"]
+    for user in users[:-1]:
+        deleted = delete_json(web_server, "/api/users", {"user_id": user["id"]})
+        assert deleted["user"]["id"] == user["id"]
+        remaining = request_json(web_server, "/api/state")["users"]
+        assert deleted["next_user_id"] == remaining[0]["id"]
+
+    with pytest.raises(urllib.error.HTTPError) as last_identity:
+        delete_json(web_server, "/api/users", {"user_id": users[-1]["id"]})
+    assert last_identity.value.code == 400
+    assert "cuối cùng" in last_identity.value.read().decode("utf-8")

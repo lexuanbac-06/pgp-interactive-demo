@@ -17,6 +17,7 @@ import {
   RefreshCw,
   ShieldCheck,
   ShieldQuestion,
+  Trash2,
   UnlockKeyhole,
   Upload,
   UserRound,
@@ -81,9 +82,9 @@ const PREVIEW_STATE: AppState = {
   contacts: [],
 };
 
-async function api<T>(path: string, body?: object): Promise<T> {
+async function api<T>(path: string, body?: object, method?: "POST" | "DELETE"): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: body === undefined ? "GET" : "POST",
+    method: method || (body === undefined ? "GET" : "POST"),
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -315,6 +316,7 @@ export default function App() {
   const [activeId, setActiveId] = useState("");
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState("");
+  const [hasEntered, setHasEntered] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>("send");
   const [sendFlowActive, setSendFlowActive] = useState(false);
   const [receiveFlowActive, setReceiveFlowActive] = useState(false);
@@ -506,6 +508,70 @@ export default function App() {
     }
   }
 
+  async function deleteUser(user: User) {
+    if (STATIC_PREVIEW) {
+      setNotice("identity", { kind: "info", text: "Tính năng xóa danh tính cần chạy ứng dụng bằng máy chủ Python cục bộ." });
+      return;
+    }
+    if (users.length <= 1) {
+      setNotice("identity", { kind: "error", text: "Không thể xóa danh tính cuối cùng." });
+      return;
+    }
+    if (!window.confirm(`Xóa danh tính “${user.name}” cùng toàn bộ khóa riêng và keyring của danh tính này? Thao tác này không thể hoàn tác.`)) return;
+
+    setBusy(`delete-user:${user.id}`);
+    setNotice("identity", undefined);
+    const wasActive = user.id === activeId;
+    let refreshUserId = activeId;
+    try {
+      if (STATIC_PREVIEW) {
+        const remainingUsers = users.filter((item) => item.id !== user.id);
+        if (wasActive) refreshUserId = remainingUsers[0]?.id || "";
+        setUsers(remainingUsers);
+        if (wasActive) setActiveId(refreshUserId);
+      } else {
+        const result = await api<{ next_user_id: string | null }>(
+          "/api/users",
+          { user_id: user.id },
+          "DELETE",
+        );
+        if (wasActive) refreshUserId = result.next_user_id || "";
+        setUsers((current) => current.filter((item) => item.id !== user.id));
+        if (wasActive) setActiveId(refreshUserId);
+        await refresh(refreshUserId || undefined);
+      }
+
+      setContacts([]);
+      setSendSteps([]);
+      setSendSessionId(null);
+      setSendRunId((current) => current + 1);
+      setReceiveSteps([]);
+      setReceiveSessionId(null);
+      setReceiveRunId((current) => current + 1);
+      setSendFlowActive(false);
+      setReceiveFlowActive(false);
+      setSendComplete(false);
+      setReceiveComplete(false);
+      setPackageOutput("");
+      setOpenedMessage("");
+      setSignatureResult(null);
+      setSignerPassphrase("");
+      setReceiverPassphrase("");
+      setNotice("identity", { kind: "success", text: `Đã xóa danh tính “${user.name}” và keyring của danh tính này.` });
+    } catch (error) {
+      setNotice("identity", { kind: "error", text: getErrorMessage(error) });
+      if (!STATIC_PREVIEW) {
+        try {
+          await refresh(refreshUserId || undefined);
+        } catch (refreshError) {
+          setNotice("identity", { kind: "error", text: `${getErrorMessage(error)} Không thể tải lại danh sách: ${getErrorMessage(refreshError)}` });
+        }
+      }
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function compose() {
     if (!message.trim()) {
       setNotice("compose", { kind: "error", text: "Hãy nhập nội dung trước khi tạo gói tin." });
@@ -654,6 +720,47 @@ export default function App() {
     );
   }
 
+  if (!hasEntered) {
+    return (
+      <main className="welcome-screen">
+        <section className="welcome-window" aria-labelledby="welcome-title">
+          <div className="welcome-art" aria-hidden="true">
+            <div className="welcome-art-glow" />
+            <div className="welcome-orbit welcome-orbit-one" />
+            <div className="welcome-orbit welcome-orbit-two" />
+            <div className="welcome-lock"><LockKeyhole size={54} strokeWidth={1.5} /></div>
+            <span className="welcome-chip welcome-chip-key"><KeyRound size={18} /></span>
+            <span className="welcome-chip welcome-chip-shield"><ShieldCheck size={18} /></span>
+          </div>
+          <div className="welcome-content">
+            <div className="welcome-brand">
+              <span className="brand-symbol"><LockKeyhole size={20} /></span>
+              <span><strong>PGP<span>Lab</span></strong><small>CRYPTOGRAPHY PLAYGROUND</small></span>
+            </div>
+            <span className="eyebrow">PHÒNG THỰC HÀNH MẬT MÃ</span>
+            <h1 id="welcome-title">Chào mừng đến với demo PGP</h1>
+            <p className="welcome-lead">Cùng khám phá cách mã hóa và xác thực thông điệp qua trải nghiệm tương tác từng bước.</p>
+            <ul className="welcome-features">
+              <li><KeyRound size={16} /><span>Tạo và quản lý khóa công khai, khóa riêng</span></li>
+              <li><LockKeyhole size={16} /><span>Mô phỏng gửi và giải mã thông điệp</span></li>
+              <li><Fingerprint size={16} /><span>Quan sát quá trình ký và xác minh chữ ký số</span></li>
+            </ul>
+            <div className="welcome-disclaimer">
+              <ShieldQuestion size={16} />
+              <p>Đây là sản phẩm mô phỏng phục vụ học tập, không tương thích OpenPGP và không dùng để bảo vệ dữ liệu thật.</p>
+            </div>
+            <div className="welcome-actions">
+              <span>Nhấn “Tiếp tục” để bắt đầu.</span>
+              <button type="button" className="button button-primary" onClick={() => setHasEntered(true)}>
+                Tiếp tục <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -696,27 +803,40 @@ export default function App() {
         <div className="user-switcher-label">DANH TÍNH</div>
         <div className="user-tabs">
           {users.map((user) => (
-            <button key={user.id} type="button" className={`user-tab ${activeId === user.id ? "active" : ""}`} onClick={() => void selectUser(user.id)}>
-              <span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span>
-              <span>{user.name}</span>
-              {user.key && <span className="user-key-dot" title="Đã có khóa" />}
-            </button>
+            <div className={`user-choice ${activeId === user.id ? "active" : ""}`} key={user.id}>
+              <button type="button" className={`user-tab ${activeId === user.id ? "active" : ""}`} onClick={() => void selectUser(user.id)}>
+                <span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span>
+                <span>{user.name}</span>
+                {user.key && <span className="user-key-dot" title="Đã có khóa" />}
+              </button>
+              <button
+                type="button"
+                className="delete-user-button"
+                aria-label={`Xóa danh tính ${user.name}`}
+                title={STATIC_PREVIEW ? "Xóa danh tính cần máy chủ Python cục bộ" : users.length === 1 ? "Không thể xóa danh tính cuối cùng" : `Xóa danh tính ${user.name}`}
+                disabled={STATIC_PREVIEW || users.length <= 1 || busy.startsWith("delete-user:")}
+                onClick={() => void deleteUser(user)}
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
           ))}
         </div>
         <button type="button" className="add-user-button" onClick={() => { setNotice("userModal", undefined); setUserModalOpen(true); }}>
           <Plus size={16} /> Thêm danh tính
         </button>
       </nav>
+      <StatusMessage notice={notices.identity} />
 
       <nav className="app-tabs" role="tablist" aria-label="Khu vực ứng dụng">
         <button type="button" role="tab" id="tab-send" aria-selected={activeTab === "send"} aria-controls="panel-send" className={`app-tab ${activeTab === "send" ? "active" : ""}`} onClick={() => setActiveTab("send")}>
-          <Mail size={17} /><span>Gửi</span><small>Tạo và ký gói tin</small>
+          <Mail size={22} /><span>Gửi</span><small>Tạo và ký gói tin</small>
         </button>
         <button type="button" role="tab" id="tab-receive" aria-selected={activeTab === "receive"} aria-controls="panel-receive" className={`app-tab ${activeTab === "receive" ? "active" : ""}`} onClick={() => setActiveTab("receive")}>
-          <UnlockKeyhole size={17} /><span>Nhận</span><small>Giải mã và xác minh</small>
+          <UnlockKeyhole size={22} /><span>Nhận</span><small>Giải mã và xác minh</small>
         </button>
         <button type="button" role="tab" id="tab-keyring" aria-selected={activeTab === "keyring"} aria-controls="panel-keyring" className={`app-tab ${activeTab === "keyring" ? "active" : ""}`} onClick={() => setActiveTab("keyring")}>
-          <KeyRound size={17} /><span>Keyring</span><small>Quản lý khóa</small>
+          <KeyRound size={22} /><span>Keyring</span><small>Quản lý khóa</small>
         </button>
       </nav>
 

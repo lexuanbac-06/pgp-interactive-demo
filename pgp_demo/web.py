@@ -422,7 +422,7 @@ def create_server(
             origin = self.headers.get("Origin")
             if allowed_origin and origin == allowed_origin:
                 self.send_header("Access-Control-Allow-Origin", origin)
-                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
                 self.send_header("Access-Control-Allow-Headers", "Content-Type")
                 self.send_header("Vary", "Origin")
 
@@ -608,6 +608,31 @@ def create_server(
                     return
                 self._send_error(404, "Không tìm thấy API.")
             except (ValueError, OSError, KeyringError, CryptoError) as exc:
+                self._send_error(400, str(exc))
+
+        def do_DELETE(self) -> None:
+            if not self._is_local_host():
+                self._send_error(403, "Chỉ chấp nhận yêu cầu từ máy cục bộ.")
+                return
+            if urlparse(self.path).path != "/api/users":
+                self._send_error(404, "Không tìm thấy API.")
+                return
+            try:
+                data = self._read_json()
+                user = users.delete(self._require_string(data, "user_id"))
+                with create_sessions_lock:
+                    create_sessions.clear()
+                with open_sessions_lock:
+                    open_sessions.clear()
+                remaining = users.list()
+                self._send_json(
+                    200,
+                    {
+                        "user": {"id": user.user_id, "name": user.name},
+                        "next_user_id": remaining[0].user_id if remaining else None,
+                    },
+                )
+            except (ValueError, OSError, KeyringError) as exc:
                 self._send_error(400, str(exc))
 
         def _create_message(self, data: dict[str, Any]) -> None:
