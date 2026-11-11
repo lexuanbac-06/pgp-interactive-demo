@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import errno
+from pathlib import Path
+
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -93,3 +96,27 @@ def test_delete_user_removes_keyring_and_preserves_last_identity(tmp_path) -> No
         users.delete(item.user_id)
     with pytest.raises(ValueError, match="cuối cùng"):
         users.delete(users.list()[0].user_id)
+
+
+def test_delete_user_clears_keyring_when_directory_is_a_mount(tmp_path, monkeypatch) -> None:
+    users = Users(tmp_path)
+    user = users.add("Mounted")
+    keyring_directory = users.users_directory / user.user_id
+    keyring_directory.mkdir(parents=True)
+    (keyring_directory / "private_key.pem").write_text("private key", encoding="utf-8")
+    nested_directory = keyring_directory / "contacts"
+    nested_directory.mkdir()
+    (nested_directory / "contacts.json").write_text("[]", encoding="utf-8")
+    original_replace = Path.replace
+
+    def replace_with_mount_error(path: Path, target: Path) -> Path:
+        if path == keyring_directory:
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", replace_with_mount_error)
+
+    assert users.delete(user.user_id) == user
+    assert user.user_id not in {item.user_id for item in users.list()}
+    assert keyring_directory.is_dir()
+    assert list(keyring_directory.iterdir()) == []

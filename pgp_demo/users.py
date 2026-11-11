@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import shutil
 import tempfile
@@ -83,8 +84,15 @@ class Users:
                 raise ValueError("Thư mục keyring không hợp lệ.") from exc
 
             staged_directory = self.users_directory / f".deleted-{uuid.uuid4().hex}"
+            mounted_directory = False
             if user_directory.exists():
-                user_directory.replace(staged_directory)
+                try:
+                    user_directory.replace(staged_directory)
+                except OSError as exc:
+                    if exc.errno != errno.EXDEV:
+                        raise
+                    self._clear_directory_contents(user_directory)
+                    mounted_directory = True
             try:
                 remaining = [
                     {"id": item.user_id, "name": item.name}
@@ -104,7 +112,36 @@ class Users:
                     raise OSError(
                         f"Đã xóa danh tính nhưng không thể xóa toàn bộ dữ liệu keyring: {exc}"
                     ) from exc
+            if mounted_directory and self._directory_has_data(user_directory):
+                raise OSError("Đã xóa danh tính nhưng thư mục keyring vẫn còn dữ liệu.")
             return user
+
+    @classmethod
+    def _clear_directory_contents(cls, directory: Path) -> None:
+        for child in directory.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                child.unlink()
+                continue
+            try:
+                shutil.rmtree(child)
+            except OSError as exc:
+                if exc.errno not in {errno.EXDEV, errno.EBUSY}:
+                    raise
+                cls._clear_directory_contents(child)
+                try:
+                    child.rmdir()
+                except OSError as remove_error:
+                    if remove_error.errno not in {errno.EXDEV, errno.EBUSY}:
+                        raise
+
+    @classmethod
+    def _directory_has_data(cls, directory: Path) -> bool:
+        for child in directory.iterdir():
+            if child.is_symlink() or not child.is_dir():
+                return True
+            if cls._directory_has_data(child):
+                return True
+        return False
 
     def _save(self, entries: list[dict[str, str]]) -> None:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
