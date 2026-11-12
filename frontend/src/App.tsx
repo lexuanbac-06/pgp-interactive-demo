@@ -326,7 +326,6 @@ export default function App() {
   const [sign, setSign] = useState(true);
   const [recipientFingerprint, setRecipientFingerprint] = useState("");
   const [signerPassphrase, setSignerPassphrase] = useState("");
-  const [receiverId, setReceiverId] = useState("");
   const [receiverPassphrase, setReceiverPassphrase] = useState("");
   const [packageInput, setPackageInput] = useState("");
   const [packageOutput, setPackageOutput] = useState("");
@@ -364,8 +363,6 @@ export default function App() {
     }
     return combined;
   }, [users, activeId, contacts]);
-  const receiverChoices = users;
-
   function setNotice(key: string, notice?: Notice) {
     setNotices((current) => ({ ...current, [key]: notice }));
   }
@@ -398,10 +395,6 @@ export default function App() {
       setRecipientFingerprint(recipients[0]?.fingerprint || "");
     }
   }, [recipients, recipientFingerprint]);
-
-  useEffect(() => {
-    if (!receiverChoices.some((user) => user.id === receiverId)) setReceiverId(activeId);
-  }, [receiverChoices, receiverId, activeId]);
 
   async function selectUser(userId: string) {
     setNotices({});
@@ -608,8 +601,6 @@ export default function App() {
       setSendSteps([result.step]);
       setSendFlowActive(true);
       setSignerPassphrase("");
-      const recipient = users.find((user) => user.key?.fingerprint === recipientFingerprint);
-      if (recipient) setReceiverId(recipient.id);
       setNotice("compose", undefined);
       setActiveTab("send");
       window.requestAnimationFrame(() => {
@@ -663,7 +654,7 @@ export default function App() {
         result: { message: string; encrypted: boolean; signature: SignatureResult } | null;
         total_steps: number;
       }>("/api/messages/open", {
-        user_id: receiverId,
+        user_id: activeId,
         armored: packageInput,
         passphrase: receiverPassphrase,
       });
@@ -939,7 +930,7 @@ export default function App() {
               icon={<UnlockKeyhole size={19} />}
               eyebrow={receiveFlowActive ? "QUY TRÌNH MẬT MÃ · PHÍA NHẬN" : "02 · NHẬN THÔNG ĐIỆP"}
               title={receiveFlowActive ? "Đang xử lý gói tin" : "Giải mã & xác minh"}
-              description={receiveFlowActive ? `Theo dõi lần lượt các bước giải mã${users.find((user) => user.id === receiverId) ? ` · ${users.find((user) => user.id === receiverId)?.name}` : ""}.` : "Dán gói tin, chọn danh tính nhận và xác minh chữ ký."}
+              description={receiveFlowActive ? `Theo dõi lần lượt các bước giải mã${activeUser ? ` · ${activeUser.name}` : ""}.` : "Dán gói tin, chọn danh tính nhận và xác minh chữ ký."}
             />
             <div className="panel-content">
               {receiveFlowActive && receiveSteps.length > 0 ? (
@@ -990,9 +981,10 @@ export default function App() {
               <div className="form-grid">
                 <div>
                   <label className="field-label" htmlFor="receiver">Danh tính nhận</label>
-                  <select id="receiver" value={receiverId} onChange={(event) => setReceiverId(event.target.value)}>
+                  <select id="receiver" value={activeId} onChange={(event) => void selectUser(event.target.value)}>
                     {users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.key ? " · có khóa riêng" : " · chưa có khóa"}</option>)}
                   </select>
+                  <p className="receiver-sync-hint">Đồng bộ với danh tính đang chọn; đổi ở đây hoặc trên thanh Danh tính.</p>
                 </div>
                 <div>
                   <label className="field-label" htmlFor="receiver-passphrase">Passphrase người nhận</label>
