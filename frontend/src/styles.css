@@ -103,6 +103,30 @@ textarea { display: block; min-height: 88px; padding: 12px 13px; resize: vertica
 select, input[type="text"], input[type="password"] { height: 39px; padding: 0 11px; font-size: 10px; }
 select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%238994a9' stroke-width='1.5' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 31px; }
 .message-input { min-height: 99px; }
+.compose-progress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 22px; }
+.compose-progress-step { display: flex; align-items: center; gap: 9px; min-width: 0; padding-bottom: 10px; border-bottom: 2px solid #e8ebf2; color: #929caf; }
+.compose-progress-step > span { display: grid; width: 27px; height: 27px; flex: 0 0 auto; place-items: center; border: 1px solid #e2e6ef; border-radius: 50%; background: #fff; font-size: 11px; font-weight: 800; }
+.compose-progress-step strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.compose-progress-step.active { border-color: #5b70e5; color: #4c60cf; }
+.compose-progress-step.active > span, .compose-progress-step.done > span { border-color: #dce2ff; color: #5368df; background: #f3f5ff; }
+.compose-progress-step.done { border-color: #b7c1f5; color: #6373c8; }
+.compose-stage h3 { margin: 0 0 16px; color: #34415b; font: 750 14px/1.45 "Manrope", sans-serif; }
+.receiver-passphrase-context { display: flex; align-items: center; gap: 11px; padding: 14px; border: 1px solid #e4e9fb; border-radius: 11px; color: #5b6ed0; background: #f7f8ff; }
+.receiver-passphrase-context > svg { flex: 0 0 auto; }
+.receiver-passphrase-context strong, .receiver-passphrase-context span { display: block; }
+.receiver-passphrase-context strong { color: #3f4f9d; font-size: 12px; }
+.receiver-passphrase-context span { margin-top: 3px; color: #7f8ab4; font-size: 10px; }
+.receiver-passphrase-field { max-width: 520px; }
+.send-review { display: grid; gap: 0; overflow: hidden; border: 1px solid #e8ebf2; border-radius: 11px; background: #fbfcfe; }
+.send-review > div { display: flex; justify-content: space-between; gap: 15px; padding: 11px 13px; border-bottom: 1px solid #edf0f5; }
+.send-review > div:last-child { border-bottom: 0; }
+.send-review span { flex: 0 0 auto; color: #8993a7; font-size: 10px; font-weight: 700; }
+.send-review strong { color: #43516a; font-size: 11px; text-align: right; }
+.send-review .send-review-message { display: block; }
+.send-review-message p { max-height: 120px; margin: 7px 0 0; overflow: auto; color: #536078; font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.send-review-note { margin: 12px 0 0; color: #78849b; font-size: 10px; line-height: 1.6; }
+.compose-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; }
+.compose-controls .send-button { margin-top: 0; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px; }
 .field-block { margin-top: 14px; }
 .input-with-icon { position: relative; }
@@ -883,8 +907,23 @@ select, input[type="text"], input[type="password"] { font-size: 14px; }
 .avatar { width: 30px; height: 30px; font-size: 14px; }
 .user-key-dot { width: 8px; height: 8px; }
 .receiver-sync-hint { margin: 7px 0 0; color: #60768a; font-size: 12px; line-height: 1.5; }
+.app-shell { display: grid; grid-template-columns: minmax(205px, 235px) minmax(0, 1fr); column-gap: 20px; align-items: start; }
+.app-shell > .topbar,
+.app-shell > .hero,
+.app-shell > .security-note,
+.app-shell > .user-switcher,
+.app-shell > .notice-message,
+.app-shell > .page-footer { grid-column: 1 / -1; }
+.app-tabs { grid-column: 1; grid-template-columns: minmax(0, 1fr); gap: 6px; width: 100%; margin: 0; }
+.app-tab { grid-template-columns: 39px minmax(0, 1fr); }
+.workspace { grid-column: 2; min-width: 0; }
+.receiver-display { cursor: default; color: #203047; background-color: #f7fbfa !important; }
 
 @media (max-width: 700px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); column-gap: 0; }
+  .app-tabs, .workspace { grid-column: 1; }
+  .app-tabs { margin: 15px 0 12px; }
+  .app-tab { grid-template-columns: 28px minmax(0, 1fr); }
   .user-choice { gap: 0; }
   .user-tab { gap: 6px; padding-right: 7px; font-size: 13px; }
   .delete-user-button { width: 30px; height: 30px; }

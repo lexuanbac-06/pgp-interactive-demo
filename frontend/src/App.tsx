@@ -66,6 +66,24 @@ type AppState = {
 
 type AppTab = "send" | "receive" | "keyring";
 
+type IdentityDraft = {
+  message: string;
+  encrypt: boolean;
+  sign: boolean;
+  recipientFingerprint: string;
+  packageInput: string;
+  publicKeyInput: string;
+};
+
+const EMPTY_IDENTITY_DRAFT: IdentityDraft = {
+  message: "",
+  encrypt: true,
+  sign: true,
+  recipientFingerprint: "",
+  packageInput: "",
+  publicKeyInput: "",
+};
+
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || (
   window.location.hostname.endsWith(".onrender.com")
     ? window.location.origin
@@ -320,18 +338,17 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("send");
   const [sendFlowActive, setSendFlowActive] = useState(false);
   const [receiveFlowActive, setReceiveFlowActive] = useState(false);
+  const [composeStage, setComposeStage] = useState<1 | 2 | 3>(1);
+  const [receiveStage, setReceiveStage] = useState<1 | 2 | 3>(1);
 
-  const [message, setMessage] = useState("");
-  const [encrypt, setEncrypt] = useState(true);
-  const [sign, setSign] = useState(true);
-  const [recipientFingerprint, setRecipientFingerprint] = useState("");
+  const [identityDrafts, setIdentityDrafts] = useState<Record<string, IdentityDraft>>({});
   const [signerPassphrase, setSignerPassphrase] = useState("");
   const [receiverPassphrase, setReceiverPassphrase] = useState("");
-  const [packageInput, setPackageInput] = useState("");
   const [packageOutput, setPackageOutput] = useState("");
 
   const [sendSteps, setSendSteps] = useState<Step[]>([]);
   const [sendSessionId, setSendSessionId] = useState<string | null>(null);
+  const [sendRecipientUserId, setSendRecipientUserId] = useState<string | null>(null);
   const [sendTotalSteps, setSendTotalSteps] = useState(5);
   const [sendRunId, setSendRunId] = useState(0);
   const [receiveSteps, setReceiveSteps] = useState<Step[]>([]);
@@ -349,9 +366,10 @@ export default function App() {
   const [keyPassphrase, setKeyPassphrase] = useState("");
   const [keyBits, setKeyBits] = useState(2048);
   const [newUserName, setNewUserName] = useState("");
-  const [publicKeyInput, setPublicKeyInput] = useState("");
   const [busy, setBusy] = useState("");
 
+  const activeDraft = identityDrafts[activeId] || EMPTY_IDENTITY_DRAFT;
+  const { message, encrypt, sign, recipientFingerprint, packageInput, publicKeyInput } = activeDraft;
   const activeUser = users.find((user) => user.id === activeId);
   const recipients = useMemo(() => {
     const fromUsers = users
@@ -365,6 +383,18 @@ export default function App() {
   }, [users, activeId, contacts]);
   function setNotice(key: string, notice?: Notice) {
     setNotices((current) => ({ ...current, [key]: notice }));
+  }
+
+  function updateActiveDraft<K extends keyof IdentityDraft>(key: K, value: IdentityDraft[K]) {
+    if (!activeId) return;
+    updateDraftForUser(activeId, key, value);
+  }
+
+  function updateDraftForUser<K extends keyof IdentityDraft>(userId: string, key: K, value: IdentityDraft[K]) {
+    setIdentityDrafts((current) => ({
+      ...current,
+      [userId]: { ...(current[userId] || EMPTY_IDENTITY_DRAFT), [key]: value },
+    }));
   }
 
   async function refresh(selectedId?: string) {
@@ -391,17 +421,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!recipients.some((item) => item.fingerprint === recipientFingerprint)) {
-      setRecipientFingerprint(recipients[0]?.fingerprint || "");
+    if (recipientFingerprint && !recipients.some((item) => item.fingerprint === recipientFingerprint)) {
+      setIdentityDrafts((current) => ({
+        ...current,
+        [activeId]: { ...(current[activeId] || EMPTY_IDENTITY_DRAFT), recipientFingerprint: "" },
+      }));
     }
-  }, [recipients, recipientFingerprint]);
+  }, [activeId, recipients, recipientFingerprint]);
 
   async function selectUser(userId: string) {
+    setActiveTab("send");
     setNotices({});
+    setComposeStage(1);
+    setReceiveStage(1);
     setSignerPassphrase("");
     setReceiverPassphrase("");
+    setKeyPassphrase("");
+    setPackageOutput("");
     setSendSteps([]);
     setSendSessionId(null);
+    setSendRecipientUserId(null);
     setSendRunId((current) => current + 1);
     setReceiveSteps([]);
     setReceiveSessionId(null);
@@ -433,9 +472,10 @@ export default function App() {
   }
 
   async function exportPublicKey() {
+    const userId = activeId;
     try {
-      const result = await api<{ armored: string }>("/api/keys/export", { user_id: activeId });
-      setPublicKeyInput(result.armored);
+      const result = await api<{ armored: string }>("/api/keys/export", { user_id: userId });
+      updateDraftForUser(userId, "publicKeyInput", result.armored);
       await copy(result.armored, "Đã export và sao chép khóa công khai.", "key");
     } catch (error) {
       setNotice("key", { kind: "error", text: getErrorMessage(error) });
@@ -443,14 +483,16 @@ export default function App() {
   }
 
   async function importPublicKey() {
+    const userId = activeId;
+    const armored = publicKeyInput;
     setNotice("key", undefined);
     try {
       const result = await api<{ key: Identity }>("/api/keys/import", {
-        user_id: activeId,
-        armored: publicKeyInput,
+        user_id: userId,
+        armored,
       });
-      setPublicKeyInput("");
-      await refresh(activeId);
+      updateDraftForUser(userId, "publicKeyInput", "");
+      await refresh(userId);
       setNotice("key", {
         kind: "success",
         text: `Đã import khóa của ${result.key.name}. Fingerprint: ${result.key.fingerprint}`,
@@ -493,6 +535,7 @@ export default function App() {
       const result = await api<{ user: { id: string } }>("/api/users", { name: newUserName.trim() });
       setUserModalOpen(false);
       setNewUserName("");
+      setActiveTab("send");
       await refresh(result.user.id);
     } catch (error) {
       setNotice("userModal", { kind: "error", text: getErrorMessage(error) });
@@ -516,6 +559,7 @@ export default function App() {
     setNotice("identity", undefined);
     const wasActive = user.id === activeId;
     let refreshUserId = activeId;
+    if (wasActive) setActiveTab("send");
     try {
       if (STATIC_PREVIEW) {
         const remainingUsers = users.filter((item) => item.id !== user.id);
@@ -537,6 +581,7 @@ export default function App() {
       setContacts([]);
       setSendSteps([]);
       setSendSessionId(null);
+      setSendRecipientUserId(null);
       setSendRunId((current) => current + 1);
       setReceiveSteps([]);
       setReceiveSessionId(null);
@@ -550,6 +595,11 @@ export default function App() {
       setSignatureResult(null);
       setSignerPassphrase("");
       setReceiverPassphrase("");
+      setIdentityDrafts((current) => {
+        const remaining = { ...current };
+        delete remaining[user.id];
+        return remaining;
+      });
       setNotice("identity", { kind: "success", text: `Đã xóa danh tính “${user.name}” và keyring của danh tính này.` });
     } catch (error) {
       setNotice("identity", { kind: "error", text: getErrorMessage(error) });
@@ -566,8 +616,21 @@ export default function App() {
   }
 
   async function compose() {
+    const senderId = activeId;
+    const recipientUserId = users.find((user) => user.key?.fingerprint === recipientFingerprint)?.id || null;
     if (!message.trim()) {
-      setNotice("compose", { kind: "error", text: "Hãy nhập nội dung trước khi tạo gói tin." });
+      setNotice("compose", { kind: "error", text: "Hãy nhập nội dung tin nhắn." });
+      setComposeStage(1);
+      return;
+    }
+    if (!recipientFingerprint) {
+      setNotice("compose", { kind: "error", text: "Hãy chọn khóa công khai người nhận." });
+      setComposeStage(1);
+      return;
+    }
+    if (sign && !signerPassphrase) {
+      setNotice("compose", { kind: "error", text: "Hãy nhập passphrase để ký bằng khóa riêng của người gửi." });
+      setComposeStage(2);
       return;
     }
     setBusy("compose");
@@ -575,6 +638,7 @@ export default function App() {
     setSendSteps([]);
     setSendComplete(false);
     setSendSessionId(null);
+    setSendRecipientUserId(recipientUserId);
     setSendRunId((current) => current + 1);
     setSendFlowActive(false);
     setPackageOutput("");
@@ -586,16 +650,18 @@ export default function App() {
         result: { armored: string } | null;
         total_steps: number;
       }>("/api/messages/create", {
-        sender_id: activeId,
+        sender_id: senderId,
         message,
         encrypt,
         recipient_fingerprint: recipientFingerprint,
         sign,
-        signer_id: activeId,
+        signer_id: senderId,
         signer_passphrase: signerPassphrase,
       });
       setPackageOutput(result.result?.armored || "");
-      if (result.result?.armored) setPackageInput(result.result.armored);
+      if (result.result?.armored && recipientUserId) {
+        updateDraftForUser(recipientUserId, "packageInput", result.result.armored);
+      }
       setSendSessionId(result.session_id);
       setSendTotalSteps(result.total_steps);
       setSendSteps([result.step]);
@@ -607,9 +673,34 @@ export default function App() {
         document.getElementById("panel-send")?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     } catch (error) {
+      setSendRecipientUserId(null);
       setNotice("compose", { kind: "error", text: getErrorMessage(error) });
     } finally {
       setBusy("");
+    }
+  }
+
+  function advanceComposeStage() {
+    setNotice("compose", undefined);
+    if (composeStage === 1) {
+      if (!message.trim()) {
+        setNotice("compose", { kind: "error", text: "Hãy nhập nội dung tin nhắn." });
+        return;
+      }
+      if (!recipientFingerprint) {
+        setNotice("compose", { kind: "error", text: "Hãy chọn khóa công khai người nhận." });
+        return;
+      }
+      setComposeStage(2);
+      return;
+    }
+
+    if (composeStage === 2) {
+      if (sign && !signerPassphrase) {
+        setNotice("compose", { kind: "error", text: "Hãy nhập passphrase để ký bằng khóa riêng của người gửi." });
+        return;
+      }
+      setComposeStage(3);
     }
   }
 
@@ -627,7 +718,9 @@ export default function App() {
       setSendSessionId(result.session_id);
       if (result.result?.armored) {
         setPackageOutput(result.result.armored);
-        setPackageInput(result.result.armored);
+        if (sendRecipientUserId) {
+          updateDraftForUser(sendRecipientUserId, "packageInput", result.result.armored);
+        }
       }
       return { step: result.step, done: result.done };
     } catch (error) {
@@ -637,6 +730,16 @@ export default function App() {
   }
 
   async function openMessage() {
+    if (!packageInput.trim()) {
+      setNotice("open", { kind: "error", text: "Hãy dán gói tin cần nhận." });
+      setReceiveStage(1);
+      return;
+    }
+    if (!activeUser?.key) {
+      setNotice("open", { kind: "error", text: "Danh tính đang chọn chưa có khóa riêng để nhận thông điệp." });
+      setReceiveStage(2);
+      return;
+    }
     setBusy("open");
     setNotice("open", undefined);
     setReceiveSteps([]);
@@ -673,6 +776,25 @@ export default function App() {
       setNotice("open", { kind: "error", text: getErrorMessage(error) });
     } finally {
       setBusy("");
+    }
+  }
+
+  function advanceReceiveStage() {
+    setNotice("open", undefined);
+    if (receiveStage === 1) {
+      if (!packageInput.trim()) {
+        setNotice("open", { kind: "error", text: "Hãy dán gói tin cần nhận." });
+        return;
+      }
+      setReceiveStage(2);
+      return;
+    }
+    if (receiveStage === 2) {
+      if (!activeUser?.key) {
+        setNotice("open", { kind: "error", text: "Danh tính đang chọn chưa có khóa riêng để nhận thông điệp." });
+        return;
+      }
+      setReceiveStage(3);
     }
   }
 
@@ -852,6 +974,7 @@ export default function App() {
                   successMessage="Gói tin đã được tạo thành công và sẵn sàng để gửi."
                   onComplete={() => {
                     setSendFlowActive(false);
+                    setComposeStage(1);
                     const failedStep = sendSteps.find((step) => step.status === "failed");
                     setSendComplete(Boolean(packageOutput) && !failedStep);
                     setNotice("compose", failedStep
@@ -869,56 +992,104 @@ export default function App() {
                   <button type="button" className="button button-outline" onClick={() => void copy(packageOutput, "Đã sao chép gói tin.", "compose")}><Clipboard size={16} /> Sao chép gói tin</button>
                 </div>
               )}
-              <label className="field-label" htmlFor="message">Nội dung tin nhắn</label>
-              <textarea
-                id="message"
-                className="message-input"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-                placeholder="Viết một thông điệp cần gửi…"
-                rows={4}
-              />
-              <div className="form-grid">
-                <div>
-                  <label className="field-label" htmlFor="recipient">Người nhận</label>
-                  <select id="recipient" value={recipientFingerprint} onChange={(event) => setRecipientFingerprint(event.target.value)}>
-                    <option value="">Chọn khóa công khai người nhận</option>
-                    {recipients.map((recipient) => <option key={recipient.fingerprint} value={recipient.fingerprint}>{recipient.name} · {recipient.fingerprint.slice(0, 15)}…</option>)}
-                  </select>
-                </div>
-                <div className="field-hint">
-                  <span className="field-label">Người gửi & người ký</span>
-                  <span>{activeUser ? `${activeUser.name} · dùng khóa riêng của người đang chọn` : "Chọn một danh tính"}</span>
-                </div>
+              <div className="compose-progress" aria-label={`Bước ${composeStage} trên 3`}>
+                {[
+                  { number: 1, title: "Soạn tin nhắn" },
+                  { number: 2, title: "Bảo mật" },
+                  { number: 3, title: "Xác nhận gửi" },
+                ].map((stage) => (
+                  <div key={stage.number} className={`compose-progress-step ${composeStage === stage.number ? "active" : composeStage > stage.number ? "done" : ""}`}>
+                    <span>{composeStage > stage.number ? <Check size={16} /> : stage.number}</span>
+                    <strong>{stage.title}</strong>
+                  </div>
+                ))}
               </div>
 
-              {sign && (
-                <div className="field-block">
-                  <label className="field-label" htmlFor="signer-passphrase">Passphrase khóa riêng người gửi</label>
-                  <div className="input-with-icon"><KeyRound size={16} /><input id="signer-passphrase" type="password" autoComplete="current-password" value={signerPassphrase} onChange={(event) => setSignerPassphrase(event.target.value)} placeholder="Dùng để mở khóa riêng cục bộ" /></div>
+              {composeStage === 1 && (
+                <div className="compose-stage">
+                  <h3>Bước 1: Soạn tin nhắn và chọn người nhận</h3>
+                  <label className="field-label" htmlFor="message">Nội dung tin nhắn</label>
+                  <textarea
+                    id="message"
+                    className="message-input"
+                    value={message}
+                    onChange={(event) => updateActiveDraft("message", event.target.value)}
+                    placeholder="Viết một thông điệp cần gửi…"
+                    rows={4}
+                  />
+                  <div className="form-grid">
+                    <div>
+                      <label className="field-label" htmlFor="recipient">Người nhận</label>
+                      <select id="recipient" value={recipientFingerprint} onChange={(event) => updateActiveDraft("recipientFingerprint", event.target.value)}>
+                        <option value="">Chọn người nhận</option>
+                        {recipients.map((recipient) => <option key={recipient.fingerprint} value={recipient.fingerprint}>{recipient.name} · {recipient.fingerprint.slice(0, 15)}…</option>)}
+                      </select>
+                    </div>
+                    <div className="field-hint">
+                      <span className="field-label">Người gửi</span>
+                      <span>{activeUser ? `${activeUser.name} · danh tính đang chọn` : "Chọn một danh tính"}</span>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              <div className="option-row">
-                <label className={`option-card ${sign ? "selected" : ""}`}>
-                  <input type="checkbox" checked={sign} onChange={(event) => setSign(event.target.checked)} />
-                  <span className="option-icon"><Fingerprint size={17} /></span>
-                  <span><strong>Ký số</strong><small>Xác minh người gửi</small></span>
-                  <span className="toggle"><i /></span>
-                </label>
-                <label className={`option-card ${encrypt ? "selected" : ""}`}>
-                  <input type="checkbox" checked={encrypt} onChange={(event) => setEncrypt(event.target.checked)} />
-                  <span className="option-icon"><LockKeyhole size={17} /></span>
-                  <span><strong>Mã hóa</strong><small>Chỉ người nhận đọc được</small></span>
-                  <span className="toggle"><i /></span>
-                </label>
-              </div>
+              {composeStage === 2 && (
+                <div className="compose-stage">
+                  <h3>Bước 2: Nhập passphrase và chọn tùy chọn bảo mật</h3>
+                  {sign && (
+                    <div className="field-block">
+                      <label className="field-label" htmlFor="signer-passphrase">Passphrase khóa riêng người gửi</label>
+                      <div className="input-with-icon"><KeyRound size={16} /><input id="signer-passphrase" type="password" autoComplete="current-password" value={signerPassphrase} onChange={(event) => setSignerPassphrase(event.target.value)} placeholder="Dùng để mở khóa riêng cục bộ" /></div>
+                    </div>
+                  )}
+                  <div className="option-row">
+                    <label className={`option-card ${sign ? "selected" : ""}`}>
+                      <input type="checkbox" checked={sign} onChange={(event) => updateActiveDraft("sign", event.target.checked)} />
+                      <span className="option-icon"><Fingerprint size={17} /></span>
+                      <span><strong>Ký số</strong><small>Xác minh người gửi</small></span>
+                      <span className="toggle"><i /></span>
+                    </label>
+                    <label className={`option-card ${encrypt ? "selected" : ""}`}>
+                      <input type="checkbox" checked={encrypt} onChange={(event) => updateActiveDraft("encrypt", event.target.checked)} />
+                      <span className="option-icon"><LockKeyhole size={17} /></span>
+                      <span><strong>Mã hóa</strong><small>Chỉ người nhận đọc được</small></span>
+                      <span className="toggle"><i /></span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {composeStage === 3 && (
+                <div className="compose-stage">
+                  <h3>Bước 3: Kiểm tra và xác nhận gửi</h3>
+                  <div className="send-review">
+                    <div><span>Người gửi</span><strong>{activeUser?.name || "Chưa chọn"}</strong></div>
+                    <div><span>Người nhận</span><strong>{recipients.find((recipient) => recipient.fingerprint === recipientFingerprint)?.name || "Chưa chọn"}</strong></div>
+                    <div><span>Bảo mật</span><strong>{[sign ? "Có chữ ký số" : "Không ký số", encrypt ? "Có mã hóa" : "Không mã hóa"].join(" · ")}</strong></div>
+                    <div className="send-review-message"><span>Nội dung</span><p>{message}</p></div>
+                  </div>
+                  <p className="send-review-note">Sau khi xác nhận, ứng dụng sẽ tạo gói tin theo các tùy chọn trên. Bạn có thể sao chép gói tin để gửi cho người nhận.</p>
+                </div>
+              )}
 
               <StatusMessage notice={notices.compose} />
-              <button type="button" className="button button-primary send-button" onClick={() => void compose()} disabled={busy === "compose"}>
-                {busy === "compose" ? <span className="spinner" /> : <ArrowRight size={17} />}
-                {busy === "compose" ? "Đang tạo gói tin…" : "Tạo gói tin"}
-              </button>
+              <div className="compose-controls">
+                {composeStage > 1 ? (
+                  <button type="button" className="button button-quiet" onClick={() => { setNotice("compose", undefined); setComposeStage((stage) => stage === 3 ? 2 : 1); }} disabled={busy === "compose"}>
+                    <ArrowLeft size={17} /> Quay lại
+                  </button>
+                ) : <span />}
+                {composeStage < 3 ? (
+                  <button type="button" className="button button-primary" onClick={advanceComposeStage}>
+                    Tiếp theo <ArrowRight size={17} />
+                  </button>
+                ) : (
+                  <button type="button" className="button button-primary send-button" onClick={() => void compose()} disabled={busy === "compose"}>
+                    {busy === "compose" ? <span className="spinner" /> : <ShieldCheck size={17} />}
+                    {busy === "compose" ? "Đang tạo gói tin…" : "Xác nhận & tạo gói tin"}
+                  </button>
+                )}
+              </div>
 
                 </>
               )}
@@ -943,6 +1114,7 @@ export default function App() {
                   successMessage="Đã hoàn thành các bước nhận gói tin. Kết quả giải mã và xác minh sẽ hiển thị sau khi tiếp tục."
                   onComplete={() => {
                     setReceiveFlowActive(false);
+                    setReceiveStage(1);
                     setReceiveComplete(Boolean(openedMessage));
                     const failedStep = receiveSteps.find((step) => step.status === "failed");
                     const warningStep = receiveSteps.find((step) => step.status === "warning");
@@ -976,26 +1148,78 @@ export default function App() {
                   )}
                 </div>
               )}
-              <label className="field-label" htmlFor="package-input">Gói tin ASCII armor</label>
-              <textarea id="package-input" className="armor-input" value={packageInput} onChange={(event) => setPackageInput(event.target.value)} placeholder={"-----BEGIN PGP MESSAGE-----\nDán gói tin vào đây…"} rows={6} />
-              <div className="form-grid">
-                <div>
-                  <label className="field-label" htmlFor="receiver">Danh tính nhận</label>
-                  <select id="receiver" value={activeId} onChange={(event) => void selectUser(event.target.value)}>
-                    {users.map((user) => <option key={user.id} value={user.id}>{user.name}{user.key ? " · có khóa riêng" : " · chưa có khóa"}</option>)}
-                  </select>
-                  <p className="receiver-sync-hint">Đồng bộ với danh tính đang chọn; đổi ở đây hoặc trên thanh Danh tính.</p>
-                </div>
-                <div>
-                  <label className="field-label" htmlFor="receiver-passphrase">Passphrase người nhận</label>
-                  <div className="input-with-icon"><KeyRound size={16} /><input id="receiver-passphrase" type="password" autoComplete="current-password" value={receiverPassphrase} onChange={(event) => setReceiverPassphrase(event.target.value)} placeholder="Mở khóa riêng để giải mã" /></div>
-                </div>
+              <div className="compose-progress" aria-label={`Bước ${receiveStage} trên 3`}>
+                {[
+                  { number: 1, title: "Nhập gói tin" },
+                  { number: 2, title: "Nhập passphrase" },
+                  { number: 3, title: "Xác nhận nhận" },
+                ].map((stage) => (
+                  <div key={stage.number} className={`compose-progress-step ${receiveStage === stage.number ? "active" : receiveStage > stage.number ? "done" : ""}`}>
+                    <span>{receiveStage > stage.number ? <Check size={16} /> : stage.number}</span>
+                    <strong>{stage.title}</strong>
+                  </div>
+                ))}
               </div>
+
+              {receiveStage === 1 && (
+                <div className="compose-stage">
+                  <h3>Bước 1: Nhập gói tin cần nhận</h3>
+                  <label className="field-label" htmlFor="package-input">Gói tin PGP</label>
+                  <textarea id="package-input" className="armor-input" value={packageInput} onChange={(event) => updateActiveDraft("packageInput", event.target.value)} placeholder={"-----BEGIN PGP MESSAGE-----\nDán gói tin vào đây…"} rows={6} />
+                </div>
+              )}
+
+              {receiveStage === 2 && (
+                <div className="compose-stage">
+                  <h3>Bước 2: Nhập passphrase để mở khóa riêng</h3>
+                  <div className="receiver-passphrase-context">
+                    <UserRound size={19} />
+                    <div>
+                      <strong>{activeUser?.name || "Chưa chọn danh tính"}</strong>
+                      <span>Danh tính nhận đang được chọn ở phía trên</span>
+                    </div>
+                  </div>
+                  <div className="field-block receiver-passphrase-field">
+                    <label className="field-label" htmlFor="receiver-passphrase">Passphrase khóa riêng</label>
+                    <div className="input-with-icon"><KeyRound size={16} /><input id="receiver-passphrase" type="password" autoComplete="current-password" value={receiverPassphrase} onChange={(event) => setReceiverPassphrase(event.target.value)} placeholder="Nhập passphrase để giải mã" /></div>
+                  </div>
+                  <p className="send-review-note">Passphrase chỉ dùng cục bộ để mở khóa riêng, không được gửi đi.</p>
+                </div>
+              )}
+
+              {receiveStage === 3 && (
+                <div className="compose-stage">
+                  <h3>Bước 3: Kiểm tra và xác nhận nhận</h3>
+                  <div className="send-review">
+                    <div><span>Danh tính nhận</span><strong>{activeUser?.name || "Chưa chọn"}</strong></div>
+                    <div><span>Khóa riêng</span><strong>{activeUser?.key ? "Đã có" : "Chưa có"}</strong></div>
+                    <div className="send-review-message">
+                      <span>Gói tin</span>
+                      <p>{packageInput.trim() ? packageInput.trim() : "Chưa nhập gói tin"}</p>
+                    </div>
+                  </div>
+                  <p className="send-review-note">Xác nhận để bắt đầu lần lượt các bước giải mã và xác minh chữ ký số.</p>
+                </div>
+              )}
+
               <StatusMessage notice={notices.open} />
-              <button type="button" className="button button-primary" onClick={() => void openMessage()} disabled={busy === "open"}>
-                {busy === "open" ? <span className="spinner" /> : <UnlockKeyhole size={17} />}
-                {busy === "open" ? "Đang xử lý…" : "Giải mã & xác minh"}
-              </button>
+              <div className="compose-controls">
+                {receiveStage > 1 ? (
+                  <button type="button" className="button button-quiet" onClick={() => { setNotice("open", undefined); setReceiveStage((stage) => stage === 3 ? 2 : 1); }} disabled={busy === "open"}>
+                    <ArrowLeft size={17} /> Quay lại
+                  </button>
+                ) : <span />}
+                {receiveStage < 3 ? (
+                  <button type="button" className="button button-primary" onClick={advanceReceiveStage}>
+                    Tiếp theo <ArrowRight size={17} />
+                  </button>
+                ) : (
+                  <button type="button" className="button button-primary" onClick={() => void openMessage()} disabled={busy === "open"}>
+                    {busy === "open" ? <span className="spinner" /> : <UnlockKeyhole size={17} />}
+                    {busy === "open" ? "Đang xử lý…" : "Xác nhận & giải mã"}
+                  </button>
+                )}
+              </div>
 
                 </>
               )}
@@ -1034,7 +1258,7 @@ export default function App() {
               </div>
               <StatusMessage notice={notices.key} />
               <div className="import-divider"><span>HOẶC IMPORT KHÓA CÔNG KHAI</span></div>
-              <textarea className="armor-input import-input" value={publicKeyInput} onChange={(event) => setPublicKeyInput(event.target.value)} placeholder="-----BEGIN PGP PUBLIC KEY-----" rows={4} aria-label="Import khóa công khai" />
+              <textarea className="armor-input import-input" value={publicKeyInput} onChange={(event) => updateActiveDraft("publicKeyInput", event.target.value)} placeholder="-----BEGIN PGP PUBLIC KEY-----" rows={4} aria-label="Import khóa công khai" />
               <button type="button" className="button button-outline button-full import-button" onClick={() => void importPublicKey()} disabled={!publicKeyInput.trim()}><Upload size={15} /> Import khóa</button>
             </div>
           </section>
